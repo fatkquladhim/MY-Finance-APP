@@ -4,27 +4,27 @@ import AuthProvider from "@/components/AuthProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ToastProvider } from "@/contexts/ToastContext";
 import Header from "@/components/Header";
-import Toast from "@/components/Toast";
+import ChatWidgetWrapper from "@/components/chat/ChatWidgetWrapper";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "My Finance Manager",
-  description: "Personal finance dashboard",
+  title: "My Finance Manager - AI Powered",
+  description: "Personal finance dashboard with AI-powered financial advisor",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+    <html lang="id" suppressHydrationWarning>
+      <body className={`${inter.className} bg-gray-50 dark:bg-gray-900 min-h-screen`}>
         <ThemeProvider>
           <ToastProvider>
             <AuthProvider>
               <Header />
-              {children}
-              <Toast />
+              <main className="pb-20">{children}</main>
+              <ChatWidgetWrapper />
             </AuthProvider>
           </ToastProvider>
         </ThemeProvider>

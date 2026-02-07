@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import Budget from '@/models/Budget';
-import Finance from '@/models/Finance';
+import { Budget } from '@/models/Budget';
+import { Finance } from '@/models/Finance';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/budgets - List all budgets
@@ -13,50 +13,34 @@ export async function GET(req: NextRequest) {
 
   try {
     const url = new URL(req.url);
-    const year = parseInt(url.searchParams.get('year') || new Date().getFullYear().toString());
-    const month = parseInt(url.searchParams.get('month') || (new Date().getMonth() + 1).toString());
-    const activeOnly = url.searchParams.get('active') !== 'false';
+    const year = url.searchParams.get('year') || new Date().getFullYear().toString();
+    const month = url.searchParams.get('month') || (new Date().getMonth() + 1).toString().padStart(2, '0');
 
-    const budgets = await Budget.find({
-      userId: session.user.id,
-      year,
-      month,
-      isActive: activeOnly ? true : undefined
-    });
+    const budgets = await Budget.findByMonthYear(session.user.id, month, year);
 
     // Calculate spent amounts for each budget
-    const monthStart = new Date(year, month - 1, 1);
-    const monthEnd = new Date(year, month, 0);
+    const monthStart = new Date(parseInt(year), parseInt(month) - 1, 1);
+    const monthEnd = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59);
 
     const budgetsWithSpent = await Promise.all(
       budgets.map(async (budget) => {
-        const spent = await Finance.aggregate([
-          {
-            $match: {
-              userId: session.user.id,
-              type: 'expense',
-              category: budget.category,
-              date: { $gte: monthStart, $lte: monthEnd }
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: '$amount' }
-            }
-          }
-        ]);
+        const spent = await Finance.getSummaryByCategory(
+          session.user.id,
+          'expense',
+          monthStart,
+          monthEnd
+        );
 
-        const spentAmount = (Array.isArray(spent) && spent.length > 0 && 'total' in spent[0] && typeof spent[0].total === 'number') ? spent[0].total : 0;
-        const percentage = Math.round((spentAmount / budget.monthly_limit) * 100);
+        const spentAmount = spent.find(s => s.category === budget.category)?.total || 0;
+        const amount = Number(budget.amount);
+        const percentage = amount > 0 ? Math.round((spentAmount / amount) * 100) : 0;
 
         return {
           ...budget,
-          id: budget.id,
           spent: spentAmount,
-          remaining: budget.monthly_limit - spentAmount,
+          remaining: amount - spentAmount,
           percentage,
-          status: percentage >= 100 ? 'exceeded' : percentage >= budget.alert_threshold ? 'warning' : 'ok'
+          status: percentage >= 100 ? 'exceeded' : percentage >= 80 ? 'warning' : 'ok'
         };
       })
     );
@@ -80,7 +64,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { category, monthlyLimit, month, year, alertThreshold } = body;
+    const { category, monthlyLimit, month, year } = body;
 
     if (!category || !monthlyLimit) {
       return NextResponse.json(
@@ -90,16 +74,15 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date();
-    const budgetMonth = month || now.getMonth() + 1;
-    const budgetYear = year || now.getFullYear();
+    const budgetMonth = month || (now.getMonth() + 1).toString().padStart(2, '0');
+    const budgetYear = year || now.getFullYear().toString();
 
     // Check if budget already exists for this category and period
-    const existingBudgets = await Budget.find({
-      userId: session.user.id,
-      category,
-      year: budgetYear,
-      month: budgetMonth
-    });
+    const existingBudgets = await Budget.findByMonthYear(
+      session.user.id,
+      budgetMonth,
+      budgetYear
+    );
 
     if (existingBudgets.length > 0) {
       return NextResponse.json(
@@ -109,19 +92,15 @@ export async function POST(req: NextRequest) {
     }
 
     const budget = await Budget.create({
-      user_id: session.user.id,
+      userId: session.user.id,
       category,
-      monthly_limit: monthlyLimit,
-      period_month: budgetMonth,
-      period_year: budgetYear,
-      alert_threshold: alertThreshold || 80,
-      is_active: true
+      amount: String(monthlyLimit),
+      month: budgetMonth,
+      year: budgetYear,
+      spent: '0'
     });
 
-    return NextResponse.json({
-      ...budget,
-      id: budget.id
-    }, { status: 201 });
+    return NextResponse.json(budget, { status: 201 });
   } catch (error) {
     console.error('Error creating budget:', error);
     return NextResponse.json(
@@ -140,25 +119,25 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, ...updates } = body as { id: string } & { monthly_limit?: number; alert_threshold?: number; is_active?: boolean };
+    const { id, ...updates } = body as { id: string } & Record<string, unknown>;
 
     if (!id) {
       return NextResponse.json({ error: 'Budget ID is required' }, { status: 400 });
     }
 
-    const budget = await Budget.findOneAndUpdate(
-      { id, userId: session.user.id },
-      updates
-    );
+    // Verify ownership
+    const existing = await Budget.findById(id);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Budget not found' }, { status: 404 });
+    }
+
+    const budget = await Budget.update(id, updates);
 
     if (!budget) {
       return NextResponse.json({ error: 'Budget not found' }, { status: 404 });
     }
 
-    return NextResponse.json({
-      ...budget,
-      id: budget.id
-    });
+    return NextResponse.json(budget);
   } catch (error) {
     console.error('Error updating budget:', error);
     return NextResponse.json(
@@ -183,10 +162,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Budget ID is required' }, { status: 400 });
     }
 
-    const result = await Budget.findOneAndDelete({
-      id,
-      userId: session.user.id
-    });
+    // Verify ownership
+    const existing = await Budget.findById(id);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Budget not found' }, { status: 404 });
+    }
+
+    const result = await Budget.delete(id);
 
     if (!result) {
       return NextResponse.json({ error: 'Budget not found' }, { status: 404 });

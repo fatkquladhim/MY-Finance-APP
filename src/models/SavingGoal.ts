@@ -1,157 +1,123 @@
-import { sql } from '@vercel/postgres';
+import { getDb, schema } from '@/lib/db';
+import { eq, and, desc } from 'drizzle-orm';
+import type { SavingGoal, NewSavingGoal, GoalContribution, NewGoalContribution } from '@/lib/db/schema';
 
-export interface GoalContribution {
-  id: string;
-  goal_id: string;
-  amount: number;
-  date: Date;
-  note?: string | null;
-}
-
-export interface SavingGoal {
-  id: string;
-  user_id: string;
-  name: string;
-  target_amount: number;
-  current_amount: number;
-  deadline?: Date | null;
-  priority: 'low' | 'medium' | 'high';
-  status: 'active' | 'completed' | 'abandoned';
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface CreateSavingGoalInput {
-  user_id: string;
-  name: string;
-  target_amount: number;
-  current_amount?: number;
-  deadline?: Date;
-  priority?: 'low' | 'medium' | 'high';
-  status?: 'active' | 'completed' | 'abandoned';
-}
-
-export interface UpdateSavingGoalInput {
-  name?: string;
-  target_amount?: number;
-  current_amount?: number;
-  deadline?: Date;
-  priority?: 'low' | 'medium' | 'high';
-  status?: 'active' | 'completed' | 'abandoned';
-}
-
-export interface CreateContributionInput {
-  goal_id: string;
-  amount: number;
-  note?: string;
-}
-
-export const SavingGoal = {
-  async find(query: { userId?: string; status?: string; priority?: string }): Promise<SavingGoal[]> {
-    const { userId, status, priority } = query;
+export class SavingGoal {
+  static async create(goalData: Omit<NewSavingGoal, 'id' | 'createdAt' | 'updatedAt'>) {
+    const db = getDb();
+    const [goal] = await db.insert(schema.savingGoals)
+      .values(goalData)
+      .returning();
     
-    let queryText = 'SELECT * FROM saving_goals WHERE 1=1';
-    const params: (string | number)[] = [];
-    let paramIndex = 1;
-    
-    if (userId) {
-      queryText += ` AND user_id = $${paramIndex}`;
-      params.push(userId);
-      paramIndex++;
-    }
-    
-    if (status) {
-      queryText += ` AND status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
-    }
-    
-    if (priority) {
-      queryText += ` AND priority = $${paramIndex}`;
-      params.push(priority);
-      paramIndex++;
-    }
-    
-    queryText += ' ORDER BY priority DESC, created_at DESC';
-    
-    const result = await sql.query<SavingGoal>(queryText, params);
-    return result.rows;
-  },
-
-  async findById(id: string): Promise<SavingGoal | null> {
-    const result = await sql<SavingGoal>`
-      SELECT * FROM saving_goals WHERE id = ${id} LIMIT 1
-    `;
-    return result.rows[0] || null;
-  },
-
-  async create(input: CreateSavingGoalInput): Promise<SavingGoal> {
-    const result = await sql<SavingGoal>`
-      INSERT INTO saving_goals (user_id, name, target_amount, current_amount, deadline, priority, status)
-      VALUES (${input.user_id}, ${input.name}, ${input.target_amount}, ${input.current_amount || 0}, ${input.deadline ? input.deadline.toISOString() : null}, ${input.priority || 'medium'}, ${input.status || 'active'})
-      RETURNING *
-    `;
-    return result.rows[0];
-  },
-
-  async findOneAndUpdate(query: { id: string; userId: string }, updates: UpdateSavingGoalInput): Promise<SavingGoal | null> {
-    const { id, userId } = query;
-    const { name, target_amount, current_amount, deadline, priority, status } = updates;
-    
-    const deadlineValue = deadline ? deadline.toISOString() : null;
-    
-    const result = await sql<SavingGoal>`
-      UPDATE saving_goals
-      SET 
-        name = COALESCE(${name || null}, name),
-        target_amount = COALESCE(${target_amount || null}, target_amount),
-        current_amount = COALESCE(${current_amount || null}, current_amount),
-        deadline = COALESCE(${deadlineValue}, deadline),
-        priority = COALESCE(${priority || null}, priority),
-        status = COALESCE(${status || null}, status),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id} AND user_id = ${userId}
-      RETURNING *
-    `;
-    return result.rows[0] || null;
-  },
-
-  async findOneAndDelete(query: { id: string; userId: string }): Promise<SavingGoal | null> {
-    const { id, userId } = query;
-    
-    const result = await sql<SavingGoal>`
-      DELETE FROM saving_goals WHERE id = ${id} AND user_id = ${userId}
-      RETURNING *
-    `;
-    return result.rows[0] || null;
-  },
-
-  // Contribution methods
-  async addContribution(input: CreateContributionInput): Promise<GoalContribution> {
-    const result = await sql<GoalContribution>`
-      INSERT INTO goal_contributions (goal_id, amount, note)
-      VALUES (${input.goal_id}, ${input.amount}, ${input.note || null})
-      RETURNING *
-    `;
-    return result.rows[0];
-  },
-
-  async getContributions(goalId: string): Promise<GoalContribution[]> {
-    const result = await sql<GoalContribution>`
-      SELECT * FROM goal_contributions WHERE goal_id = ${goalId} ORDER BY date ASC
-    `;
-    return result.rows;
-  },
-
-  async updateCurrentAmount(goalId: string, amount: number): Promise<SavingGoal | null> {
-    const result = await sql<SavingGoal>`
-      UPDATE saving_goals
-      SET current_amount = ${amount}, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${goalId}
-      RETURNING *
-    `;
-    return result.rows[0] || null;
+    return goal;
   }
-};
 
-export default SavingGoal;
+  static async findByUserId(userId: string) {
+    const db = getDb();
+    const goals = await db.select()
+      .from(schema.savingGoals)
+      .where(eq(schema.savingGoals.userId, userId))
+      .orderBy(desc(schema.savingGoals.createdAt));
+    
+    return goals;
+  }
+
+  static async findById(id: string) {
+    const db = getDb();
+    const [goal] = await db.select()
+      .from(schema.savingGoals)
+      .where(eq(schema.savingGoals.id, id))
+      .limit(1);
+    
+    return goal || null;
+  }
+
+  static async findByStatus(userId: string, status: string) {
+    const db = getDb();
+    const goals = await db.select()
+      .from(schema.savingGoals)
+      .where(
+        and(
+          eq(schema.savingGoals.userId, userId),
+          eq(schema.savingGoals.status, status)
+        )
+      )
+      .orderBy(desc(schema.savingGoals.createdAt));
+    
+    return goals;
+  }
+
+  static async update(id: string, updates: Partial<Omit<SavingGoal, 'id' | 'createdAt' | 'updatedAt'>>) {
+    const db = getDb();
+    const [goal] = await db.update(schema.savingGoals)
+      .set(updates)
+      .where(eq(schema.savingGoals.id, id))
+      .returning();
+    
+    return goal || null;
+  }
+
+  static async delete(id: string) {
+    const db = getDb();
+    const [goal] = await db.delete(schema.savingGoals)
+      .where(eq(schema.savingGoals.id, id))
+      .returning();
+    
+    return goal || null;
+  }
+
+  static async addContribution(goalId: string, amount: number, note?: string) {
+    const db = getDb();
+    
+    // Add contribution
+    const [contribution] = await db.insert(schema.goalContributions)
+      .values({
+        goalId,
+        amount: String(amount),
+        note: note || null,
+      })
+      .returning();
+    
+    // Update goal's current amount
+    const goal = await this.findById(goalId);
+    if (goal) {
+      const newAmount = Number(goal.currentAmount) + amount;
+      await this.update(goalId, { currentAmount: String(newAmount) });
+    }
+    
+    return contribution;
+  }
+
+  static async getContributions(goalId: string) {
+    const db = getDb();
+    const contributions = await db.select()
+      .from(schema.goalContributions)
+      .where(eq(schema.goalContributions.goalId, goalId))
+      .orderBy(desc(schema.goalContributions.date));
+    
+    return contributions;
+  }
+
+  static async getProgress(goalId: string) {
+    const db = getDb();
+    const goal = await this.findById(goalId);
+    
+    if (!goal) {
+      return null;
+    }
+    
+    const targetAmount = Number(goal.targetAmount);
+    const currentAmount = Number(goal.currentAmount);
+    const percentage = targetAmount > 0 ? (currentAmount / targetAmount) * 100 : 0;
+    const remaining = targetAmount - currentAmount;
+    
+    return {
+      goalId: goal.id,
+      targetAmount,
+      currentAmount,
+      percentage,
+      remaining,
+      isCompleted: percentage >= 100,
+    };
+  }
+}

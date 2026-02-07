@@ -1,242 +1,134 @@
-import { sql } from '@vercel/postgres';
+import { getDb, schema } from '@/lib/db';
+import { eq, and, gte, lte, desc, sql } from 'drizzle-orm';
+import type { Finance, NewFinance } from '@/lib/db/schema';
 
-export interface Finance {
-  id: string;
-  user_id: string;
-  type: 'income' | 'expense';
-  amount: number;
-  category: string;
-  description?: string | null;
-  date: Date;
-}
-
-export interface CreateFinanceInput {
-  user_id: string;
-  type: 'income' | 'expense';
-  amount: number;
-  category: string;
-  description?: string;
-  date?: Date;
-}
-
-export interface UpdateFinanceInput {
-  type?: 'income' | 'expense';
-  amount?: number;
-  category?: string;
-  description?: string;
-  date?: Date;
-}
-
-interface AggregationMatch {
-  userId?: string;
-  type?: 'income' | 'expense';
-  category?: string;
-  date?: {
-    $gte?: Date;
-    $lte?: Date;
-  };
-}
-
-interface AggregationStage {
-  $match?: AggregationMatch;
-  $group?: {
-    _id: null | string;
-    total?: { $sum: string };
-  };
-}
-
-interface AggregationResult {
-  total?: number;
-}
-
-export const Finance = {
-  async find(query: { userId?: string; type?: 'income' | 'expense'; category?: string; startDate?: Date; endDate?: Date }): Promise<Finance[]> {
-    const { userId, type, category, startDate, endDate } = query;
+export class Finance {
+  static async create(financeData: Omit<NewFinance, 'id' | 'createdAt' | 'updatedAt'>) {
+    const db = getDb();
+    const [finance] = await db.insert(schema.finances)
+      .values(financeData)
+      .returning();
     
-    let queryText = 'SELECT * FROM finances WHERE 1=1';
-    const params: (string | number | Date)[] = [];
-    let paramIndex = 1;
-    
-    if (userId) {
-      queryText += ` AND user_id = $${paramIndex}`;
-      params.push(userId);
-      paramIndex++;
-    }
-    
-    if (type) {
-      queryText += ` AND type = $${paramIndex}`;
-      params.push(type);
-      paramIndex++;
-    }
-    
-    if (category) {
-      queryText += ` AND category = $${paramIndex}`;
-      params.push(category);
-      paramIndex++;
-    }
-    
-    if (startDate) {
-      queryText += ` AND date >= $${paramIndex}`;
-      params.push(startDate);
-      paramIndex++;
-    }
-    
-    if (endDate) {
-      queryText += ` AND date <= $${paramIndex}`;
-      params.push(endDate);
-      paramIndex++;
-    }
-    
-    queryText += ' ORDER BY date DESC';
-    
-    const result = await sql.query<Finance>(queryText, params);
-    return result.rows;
-  },
-
-  async findById(id: string): Promise<Finance | null> {
-    const result = await sql<Finance>`
-      SELECT * FROM finances WHERE id = ${id} LIMIT 1
-    `;
-    return result.rows[0] || null;
-  },
-
-  async create(input: CreateFinanceInput): Promise<Finance> {
-    const dateValue = input.date || new Date();
-    const result = await sql<Finance>`
-      INSERT INTO finances (user_id, type, amount, category, description, date)
-      VALUES (${input.user_id}, ${input.type}, ${input.amount}, ${input.category}, ${input.description || null}, ${dateValue.toISOString()})
-      RETURNING *
-    `;
-    return result.rows[0];
-  },
-
-  async findOneAndUpdate(query: { id: string; userId: string }, updates: UpdateFinanceInput): Promise<Finance | null> {
-    const { id, userId } = query;
-    const { type, amount, category, description, date } = updates;
-    
-    const dateValue = date ? date.toISOString() : null;
-    
-    const result = await sql<Finance>`
-      UPDATE finances
-      SET 
-        type = COALESCE(${type || null}, type),
-        amount = COALESCE(${amount || null}, amount),
-        category = COALESCE(${category || null}, category),
-        description = COALESCE(${description || null}, description),
-        date = COALESCE(${dateValue}, date)
-      WHERE id = ${id} AND user_id = ${userId}
-      RETURNING *
-    `;
-    return result.rows[0] || null;
-  },
-
-  async findOneAndDelete(query: { id: string; userId: string }): Promise<Finance | null> {
-    const { id, userId } = query;
-    
-    const result = await sql<Finance>`
-      DELETE FROM finances WHERE id = ${id} AND user_id = ${userId}
-      RETURNING *
-    `;
-    return result.rows[0] || null;
-  },
-
-  async aggregate(pipeline: AggregationStage[]): Promise<Finance[] | AggregationResult[]> {
-    // MongoDB aggregation to SQL conversion
-    // This is a simplified version for the specific use cases in the app
-    
-    for (const stage of pipeline) {
-      if (stage.$match) {
-        const match = stage.$match;
-        let queryText = 'SELECT * FROM finances WHERE 1=1';
-        const params: (string | number | Date)[] = [];
-        let paramIndex = 1;
-        
-        if (match.userId) {
-          queryText += ` AND user_id = $${paramIndex}`;
-          params.push(match.userId);
-          paramIndex++;
-        }
-        
-        if (match.type) {
-          queryText += ` AND type = $${paramIndex}`;
-          params.push(match.type);
-          paramIndex++;
-        }
-        
-        if (match.category) {
-          queryText += ` AND category = $${paramIndex}`;
-          params.push(match.category);
-          paramIndex++;
-        }
-        
-        if (match.date) {
-          if (match.date.$gte) {
-            queryText += ` AND date >= $${paramIndex}`;
-            params.push(match.date.$gte);
-            paramIndex++;
-          }
-          if (match.date.$lte) {
-            queryText += ` AND date <= $${paramIndex}`;
-            params.push(match.date.$lte);
-            paramIndex++;
-          }
-        }
-        
-        const result = await sql.query<Finance>(queryText, params);
-        return result.rows;
-      }
-      
-      if (stage.$group) {
-        const group = stage.$group;
-        
-        if (group._id === null && group.total) {
-          // Sum aggregation
-          const matchStage = pipeline.find((p: AggregationStage) => p.$match);
-          if (matchStage && matchStage.$match) {
-            let queryText = 'SELECT SUM(amount) as total FROM finances WHERE 1=1';
-            const params: (string | number | Date)[] = [];
-            let paramIndex = 1;
-            
-            if (matchStage.$match.userId) {
-              queryText += ` AND user_id = $${paramIndex}`;
-              params.push(matchStage.$match.userId);
-              paramIndex++;
-            }
-            
-            if (matchStage.$match.type) {
-              queryText += ` AND type = $${paramIndex}`;
-              params.push(matchStage.$match.type);
-              paramIndex++;
-            }
-            
-            if (matchStage.$match.category) {
-              queryText += ` AND category = $${paramIndex}`;
-              params.push(matchStage.$match.category);
-              paramIndex++;
-            }
-            
-            if (matchStage.$match.date) {
-              if (matchStage.$match.date.$gte) {
-                queryText += ` AND date >= $${paramIndex}`;
-                params.push(matchStage.$match.date.$gte);
-                paramIndex++;
-              }
-              if (matchStage.$match.date.$lte) {
-                queryText += ` AND date <= $${paramIndex}`;
-                params.push(matchStage.$match.date.$lte);
-                paramIndex++;
-              }
-            }
-            
-            const result = await sql.query<AggregationResult>(queryText, params);
-            return [{ total: result.rows[0]?.total || 0 }];
-          }
-        }
-      }
-    }
-    
-    return [];
+    return finance;
   }
-};
 
-export default Finance;
+  static async findByUserId(userId: string) {
+    const db = getDb();
+    const finances = await db.select()
+      .from(schema.finances)
+      .where(eq(schema.finances.userId, userId))
+      .orderBy(desc(schema.finances.date));
+    
+    return finances;
+  }
+
+  static async findById(id: string) {
+    const db = getDb();
+    const [finance] = await db.select()
+      .from(schema.finances)
+      .where(eq(schema.finances.id, id))
+      .limit(1);
+    
+    return finance || null;
+  }
+
+  static async findByDateRange(userId: string, startDate: Date, endDate: Date) {
+    const db = getDb();
+    const finances = await db.select()
+      .from(schema.finances)
+      .where(
+        and(
+          eq(schema.finances.userId, userId),
+          gte(schema.finances.date, startDate),
+          lte(schema.finances.date, endDate)
+        )
+      )
+      .orderBy(desc(schema.finances.date));
+    
+    return finances;
+  }
+
+  static async update(id: string, updates: Partial<Omit<Finance, 'id' | 'createdAt' | 'updatedAt'>>) {
+    const db = getDb();
+    const [finance] = await db.update(schema.finances)
+      .set(updates)
+      .where(eq(schema.finances.id, id))
+      .returning();
+    
+    return finance || null;
+  }
+
+  static async delete(id: string) {
+    const db = getDb();
+    const [finance] = await db.delete(schema.finances)
+      .where(eq(schema.finances.id, id))
+      .returning();
+    
+    return finance || null;
+  }
+
+  static async getSummaryByCategory(userId: string, type: 'income' | 'expense', startDate?: Date, endDate?: Date) {
+    const db = getDb();
+    
+    const conditions = [eq(schema.finances.userId, userId), eq(schema.finances.type, type)];
+    
+    if (startDate && endDate) {
+      conditions.push(gte(schema.finances.date, startDate));
+      conditions.push(lte(schema.finances.date, endDate));
+    }
+    
+    const result = await db.select({
+      category: schema.finances.category,
+      total: sql<number>`COALESCE(SUM(${schema.finances.amount}), 0)`,
+      count: sql<number>`COUNT(*)`,
+    })
+      .from(schema.finances)
+      .where(and(...conditions))
+      .groupBy(schema.finances.category);
+    
+    return result;
+  }
+
+  static async getMonthlySummary(userId: string, year: number, month: number) {
+    const db = getDb();
+    
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59);
+    
+    const result = await db.select({
+      type: schema.finances.type,
+      total: sql<number>`COALESCE(SUM(${schema.finances.amount}), 0)`,
+      count: sql<number>`COUNT(*)`,
+    })
+      .from(schema.finances)
+      .where(
+        and(
+          eq(schema.finances.userId, userId),
+          gte(schema.finances.date, startDate),
+          lte(schema.finances.date, endDate)
+        )
+      )
+      .groupBy(schema.finances.type);
+    
+    return result;
+  }
+
+  static async getTotalByType(userId: string, type: 'income' | 'expense', startDate?: Date, endDate?: Date) {
+    const db = getDb();
+    
+    const conditions = [eq(schema.finances.userId, userId), eq(schema.finances.type, type)];
+    
+    if (startDate && endDate) {
+      conditions.push(gte(schema.finances.date, startDate));
+      conditions.push(lte(schema.finances.date, endDate));
+    }
+    
+    const [result] = await db.select({
+      total: sql<number>`COALESCE(SUM(${schema.finances.amount}), 0)`,
+    })
+      .from(schema.finances)
+      .where(and(...conditions));
+    
+    return result?.total || 0;
+  }
+}

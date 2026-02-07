@@ -1,125 +1,71 @@
-import { sql } from '@vercel/postgres';
-import { hash } from 'bcrypt';
+import { getDb, schema } from '@/lib/db';
+import { eq } from 'drizzle-orm';
+import bcrypt from 'bcryptjs';
+import type { User, NewUser } from '@/lib/db/schema';
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  password: string;
-  bio?: string | null;
-  avatar?: string | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface CreateUserInput {
-  name: string;
-  email: string;
-  password: string;
-  bio?: string;
-  avatar?: string;
-}
-
-export interface UpdateUserInput {
-  name?: string;
-  bio?: string;
-  avatar?: string;
-}
-
-export const User = {
-  async findOne(query: { email?: string; id?: string }): Promise<User | null> {
-    const { email, id } = query;
+export class User {
+  static async create(userData: Omit<NewUser, 'id' | 'createdAt' | 'updatedAt'>) {
+    const db = getDb();
     
-    if (email) {
-      const result = await sql<User>`
-        SELECT * FROM users WHERE email = ${email} LIMIT 1
-      `;
-      return result.rows[0] || null;
-    }
+    // Hash password before storing
+    const hashedPassword = await bcrypt.hash(userData.password, 10);
     
-    if (id) {
-      const result = await sql<User>`
-        SELECT * FROM users WHERE id = ${id} LIMIT 1
-      `;
-      return result.rows[0] || null;
-    }
+    const [user] = await db.insert(schema.users)
+      .values({
+        ...userData,
+        password: hashedPassword,
+      })
+      .returning();
     
-    return null;
-  },
-
-  async findById(id: string): Promise<User | null> {
-    const result = await sql<User>`
-      SELECT * FROM users WHERE id = ${id} LIMIT 1
-    `;
-    return result.rows[0] || null;
-  },
-
-  async create(input: CreateUserInput): Promise<User> {
-    const hashedPassword = await hash(input.password, 12);
-    
-    const result = await sql<User>`
-      INSERT INTO users (name, email, password, bio, avatar)
-      VALUES (${input.name}, ${input.email}, ${hashedPassword}, ${input.bio || null}, ${input.avatar || null})
-      RETURNING *
-    `;
-    
-    return result.rows[0];
-  },
-
-  async findOneAndUpdate(query: { id?: string; email?: string }, updates: UpdateUserInput): Promise<User | null> {
-    const { id, email } = query;
-    const { name, bio, avatar } = updates;
-    
-    let result;
-    
-    if (id) {
-      result = await sql<User>`
-        UPDATE users
-        SET 
-          name = COALESCE(${name || null}, name),
-          bio = COALESCE(${bio || null}, bio),
-          avatar = COALESCE(${avatar || null}, avatar),
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ${id}
-        RETURNING *
-      `;
-    } else if (email) {
-      result = await sql<User>`
-        UPDATE users
-        SET 
-          name = COALESCE(${name || null}, name),
-          bio = COALESCE(${bio || null}, bio),
-          avatar = COALESCE(${avatar || null}, avatar),
-          updated_at = CURRENT_TIMESTAMP
-        WHERE email = ${email}
-        RETURNING *
-      `;
-    } else {
-      return null;
-    }
-    
-    return result.rows[0] || null;
-  },
-
-  async deleteOne(query: { id?: string; email?: string }): Promise<boolean> {
-    const { id, email } = query;
-    
-    let result;
-    
-    if (id) {
-      result = await sql`
-        DELETE FROM users WHERE id = ${id}
-      `;
-    } else if (email) {
-      result = await sql`
-        DELETE FROM users WHERE email = ${email}
-      `;
-    } else {
-      return false;
-    }
-    
-    return (result.rowCount || 0) > 0;
+    return user;
   }
-};
 
-export default User;
+  static async findByEmail(email: string) {
+    const db = getDb();
+    const [user] = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+    
+    return user || null;
+  }
+
+  static async findById(id: string) {
+    const db = getDb();
+    const [user] = await db.select()
+      .from(schema.users)
+      .where(eq(schema.users.id, id))
+      .limit(1);
+    
+    return user || null;
+  }
+
+  static async update(id: string, updates: Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>>) {
+    const db = getDb();
+    
+    // If password is being updated, hash it
+    if (updates.password) {
+      updates.password = await bcrypt.hash(updates.password, 10);
+    }
+    
+    const [user] = await db.update(schema.users)
+      .set(updates)
+      .where(eq(schema.users.id, id))
+      .returning();
+    
+    return user || null;
+  }
+
+  static async delete(id: string) {
+    const db = getDb();
+    const [user] = await db.delete(schema.users)
+      .where(eq(schema.users.id, id))
+      .returning();
+    
+    return user || null;
+  }
+
+  static async verifyPassword(plainPassword: string, hashedPassword: string) {
+    return bcrypt.compare(plainPassword, hashedPassword);
+  }
+}

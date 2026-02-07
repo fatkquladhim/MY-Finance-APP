@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import SavingGoal from '@/models/SavingGoal';
+import { SavingGoal } from '@/models/SavingGoal';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface RouteParams {
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const goal = await SavingGoal.findById(id);
 
-    if (!goal || goal.user_id !== session.user.id) {
+    if (!goal || goal.userId !== session.user.id) {
       return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
     }
 
@@ -40,31 +40,28 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     // Add contribution
-    await SavingGoal.addContribution({
-      goal_id: id,
-      amount,
-      note: note || undefined
-    });
+    await SavingGoal.addContribution(id, amount, note || undefined);
 
-    // Update current amount
-    const newAmount = goal.current_amount + amount;
-    const updatedGoal = await SavingGoal.updateCurrentAmount(id, newAmount);
-
-    // Check if goal is completed
-    if (newAmount >= goal.target_amount) {
-      await SavingGoal.findOneAndUpdate(
-        { id, userId: session.user.id },
-        { status: 'completed' }
-      );
+    // Get updated goal
+    const updatedGoal = await SavingGoal.findById(id);
+    if (!updatedGoal) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
     }
 
-    const progress = Math.round((newAmount / goal.target_amount) * 100);
+    // Check if goal is completed
+    const targetAmount = Number(updatedGoal.targetAmount);
+    const currentAmount = Number(updatedGoal.currentAmount);
+    
+    if (currentAmount >= targetAmount) {
+      await SavingGoal.update(id, { status: 'completed' });
+    }
+
+    const progress = Math.round((currentAmount / targetAmount) * 100);
 
     return NextResponse.json({
       ...updatedGoal,
-      id: updatedGoal?.id || id,
       progress: Math.min(100, progress),
-      message: newAmount >= goal.target_amount 
+      message: currentAmount >= targetAmount 
         ? 'Congratulations! Goal completed!' 
         : 'Contribution added successfully'
     });

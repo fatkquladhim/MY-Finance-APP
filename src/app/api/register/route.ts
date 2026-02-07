@@ -1,4 +1,4 @@
-import User from "@/models/User";
+import { User } from "@/models/User";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    const existing = await User.findOne({ email });
+    const existing = await User.findByEmail(email);
     if (existing) {
       return NextResponse.json({ error: "Email already in use" }, { status: 409 });
     }

@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import Finance, { UpdateFinanceInput } from "@/models/Finance";
+import { Finance } from "@/models/Finance";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
@@ -8,7 +8,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const finances = await Finance.find({ userId: session.user.id });
+    const finances = await Finance.findByUserId(session.user.id);
     return NextResponse.json(finances);
   } catch (error) {
     return NextResponse.json({ error: "Gagal mengambil data" }, { status: 500 });
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const finance = await Finance.create({ ...body, user_id: session.user.id });
+    const finance = await Finance.create({ ...body, userId: session.user.id });
     return NextResponse.json(finance, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: "Gagal menyimpan data" }, { status: 500 });
@@ -34,9 +34,16 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, ...updates } = body as { id: string } & UpdateFinanceInput;
+    const { id, ...updates } = body as { id: string } & Record<string, unknown>;
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    const finance = await Finance.findOneAndUpdate({ id, userId: session.user.id }, updates);
+    
+    // Verify ownership
+    const existing = await Finance.findById(id);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    
+    const finance = await Finance.update(id, updates);
     if (!finance) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(finance);
   } catch (error) {
@@ -56,7 +63,14 @@ export async function DELETE(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const payloadId = (body && typeof body === 'object' && 'id' in body) ? (body as { id: string }).id : id;
     if (!payloadId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    const res = await Finance.findOneAndDelete({ id: payloadId, userId: session.user.id });
+    
+    // Verify ownership
+    const existing = await Finance.findById(payloadId);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    
+    const res = await Finance.delete(payloadId);
     if (!res) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ message: "Deleted" });
   } catch (error) {

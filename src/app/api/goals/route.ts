@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import SavingGoal from '@/models/SavingGoal';
+import { SavingGoal } from '@/models/SavingGoal';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/goals - List all saving goals
@@ -14,15 +14,13 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const status = url.searchParams.get('status') || 'active';
 
-    const goals = await SavingGoal.find({
-      userId: session.user.id,
-      status: status === 'all' ? undefined : status
-    });
+    const goals = status === 'all'
+      ? await SavingGoal.findByUserId(session.user.id)
+      : await SavingGoal.findByStatus(session.user.id, status);
 
-    const formattedGoals = goals.map((goal) => {
-      const progress = goal.target_amount > 0 
-        ? Math.round((goal.current_amount / goal.target_amount) * 100) 
-        : 0;
+    const formattedGoals = await Promise.all(goals.map(async (goal) => {
+      const progress = await SavingGoal.getProgress(goal.id);
+      const progressPercentage = progress?.percentage || 0;
 
       let daysRemaining: number | null = null;
       if (goal.deadline) {
@@ -33,13 +31,12 @@ export async function GET(req: NextRequest) {
 
       return {
         ...goal,
-        id: goal.id,
-        progress: Math.min(100, progress),
+        progress: Math.min(100, progressPercentage),
         daysRemaining,
         contributionsCount: 0, // Will be populated if needed
         lastContribution: null
       };
-    });
+    }));
 
     return NextResponse.json(formattedGoals);
   } catch (error) {
@@ -60,7 +57,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { name, targetAmount, deadline, priority, currentAmount } = body;
+    const { name, targetAmount, deadline, currentAmount } = body;
 
     if (!name || !targetAmount) {
       return NextResponse.json(
@@ -70,28 +67,24 @@ export async function POST(req: NextRequest) {
     }
 
     const goal = await SavingGoal.create({
-      user_id: session.user.id,
+      userId: session.user.id,
       name,
-      target_amount: targetAmount,
-      current_amount: currentAmount || 0,
+      targetAmount: String(targetAmount),
+      currentAmount: String(currentAmount || 0),
       deadline: deadline ? new Date(deadline) : undefined,
-      priority: (priority as 'low' | 'medium' | 'high') || 'medium',
       status: 'active'
     });
 
     // Add initial contribution if currentAmount > 0
     if (currentAmount && currentAmount > 0) {
-      await SavingGoal.addContribution({
-        goal_id: goal.id,
-        amount: currentAmount,
-        note: 'Initial amount'
-      });
+      await SavingGoal.addContribution(goal.id, currentAmount, 'Initial amount');
     }
+
+    const progress = await SavingGoal.getProgress(goal.id);
 
     return NextResponse.json({
       ...goal,
-      id: goal.id,
-      progress: Math.round((goal.current_amount / goal.target_amount) * 100)
+      progress: progress?.percentage || 0
     }, { status: 201 });
   } catch (error) {
     console.error('Error creating goal:', error);
@@ -111,25 +104,29 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, ...updates } = body as { id: string } & { name?: string; target_amount?: number; deadline?: Date; priority?: string; status?: string };
+    const { id, ...updates } = body as { id: string } & Record<string, unknown>;
 
     if (!id) {
       return NextResponse.json({ error: 'Goal ID is required' }, { status: 400 });
     }
 
-    const goal = await SavingGoal.findOneAndUpdate(
-      { id, userId: session.user.id },
-      updates as { name?: string; target_amount?: number; deadline?: Date; priority?: 'low' | 'medium' | 'high'; status?: 'active' | 'completed' | 'abandoned' }
-    );
+    // Verify ownership
+    const existing = await SavingGoal.findById(id);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+    }
+
+    const goal = await SavingGoal.update(id, updates);
 
     if (!goal) {
       return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
     }
 
+    const progress = await SavingGoal.getProgress(id);
+
     return NextResponse.json({
       ...goal,
-      id: goal.id,
-      progress: Math.round((goal.current_amount / goal.target_amount) * 100)
+      progress: progress?.percentage || 0
     });
   } catch (error) {
     console.error('Error updating goal:', error);
@@ -155,10 +152,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Goal ID is required' }, { status: 400 });
     }
 
-    const result = await SavingGoal.findOneAndDelete({
-      id,
-      userId: session.user.id
-    });
+    // Verify ownership
+    const existing = await SavingGoal.findById(id);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
+    }
+
+    const result = await SavingGoal.delete(id);
 
     if (!result) {
       return NextResponse.json({ error: 'Goal not found' }, { status: 404 });

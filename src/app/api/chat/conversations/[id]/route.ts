@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import ChatConversation from '@/models/ChatConversation';
+import { ChatConversation } from '@/models/ChatConversation';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface RouteParams {
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     const conversation = await ChatConversation.findById(id);
 
-    if (!conversation || conversation.user_id !== session.user.id) {
+    if (!conversation || conversation.userId !== session.user.id) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
@@ -28,14 +28,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({
       id: conversation.id,
       title: conversation.title,
-      status: conversation.status,
       messages: messages.map((m) => ({
         role: m.role,
         content: m.content,
-        timestamp: m.timestamp?.toISOString() || new Date().toISOString()
+        timestamp: m.createdAt?.toISOString() || new Date().toISOString()
       })),
-      lastMessageAt: conversation.last_message_at?.toISOString(),
-      createdAt: conversation.created_at?.toISOString()
+      createdAt: conversation.createdAt?.toISOString()
     });
   } catch (error) {
     console.error('Error fetching conversation:', error);
@@ -46,7 +44,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 }
 
-// PUT /api/chat/conversations/[id] - Update conversation (rename, archive)
+// PUT /api/chat/conversations/[id] - Update conversation (rename)
 export async function PUT(req: NextRequest, { params }: RouteParams) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
@@ -56,22 +54,19 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json();
-    const { title, status } = body;
+    const { title } = body;
 
-    const updateData: { title?: string; status?: 'active' | 'archived' } = {};
-    if (title !== undefined) updateData.title = title;
-    if (status !== undefined && ['active', 'archived'].includes(status)) {
-      updateData.status = status as 'active' | 'archived';
+    if (!title) {
+      return NextResponse.json({ error: 'Title is required' }, { status: 400 });
     }
 
-    if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+    // Verify ownership
+    const existing = await ChatConversation.findById(id);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const conversation = await ChatConversation.findOneAndUpdate(
-      { id, userId: session.user.id },
-      updateData
-    );
+    const conversation = await ChatConversation.update(id, { title });
 
     if (!conversation) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
@@ -80,7 +75,6 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({
       id: conversation.id,
       title: conversation.title,
-      status: conversation.status,
       message: 'Conversation updated'
     });
   } catch (error) {
@@ -102,11 +96,13 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
 
-    // Soft delete by archiving
-    const result = await ChatConversation.findOneAndUpdate(
-      { id, userId: session.user.id },
-      { status: 'archived' }
-    );
+    // Verify ownership
+    const existing = await ChatConversation.findById(id);
+    if (!existing || existing.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+    }
+
+    const result = await ChatConversation.delete(id);
 
     if (!result) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });

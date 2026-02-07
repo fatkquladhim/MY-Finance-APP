@@ -9,19 +9,26 @@ import {
   Title,
   Tooltip,
   Legend,
+  LineElement,
+  PointElement,
 } from "chart.js";
-import { Bar } from "react-chartjs-2";
+import { Line } from "react-chartjs-2";
 import { useSession } from "next-auth/react";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import StatTile from "@/components/StatTile";
-import DashboardCard from "@/components/DashboardCard";
+import PageContainer from "@/components/layout/PageContainer";
+import StatCard from "@/components/ui/cards/StatCard";
+import Card from "@/components/ui/cards/Card";
+import TransactionCard from "@/components/ui/cards/TransactionCard";
+import { SkeletonCard, SkeletonTransaction } from "@/components/ui/loading/Skeleton";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, LineElement, PointElement);
 
 export default function Dashboard() {
   const { data: session } = useSession();
   const [finances, setFinances] = useState<any[]>([]);
   const [portfolio, setPortfolio] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     const fetchData = async () => {
       const [finRes, portRes] = await Promise.all([
@@ -32,6 +39,7 @@ export default function Dashboard() {
       const portData = await portRes.json().catch(() => []);
       setFinances(finData || []);
       setPortfolio(portData || []);
+      setLoading(false);
     };
     if (session) fetchData();
   }, [session]);
@@ -43,93 +51,205 @@ export default function Dashboard() {
     .filter(f => f.type === "expense")
     .reduce((sum, f) => sum + (f.amount || 0), 0);
   const netWorth = portfolio.reduce((sum, p) => sum + ((p.currentValue || 0) * (p.quantity || 0)), 0);
+  const totalBalance = netWorth + totalIncome - totalExpense;
 
   const chartData = {
-    labels: ["Pendapatan", "Pengeluaran", "Kekayaan Bersih"],
+    labels: ["Income", "Expense", "Net Worth"],
     datasets: [
       {
-        label: "Jumlah (Rp)",
+        label: "Amount (Rp)",
         data: [totalIncome, totalExpense, netWorth],
-        backgroundColor: ["#4ade80", "#f87171", "#60a5fa"],
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+        pointBackgroundColor: '#6366f1',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4,
       },
     ],
   };
 
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        backgroundColor: '#1f2937',
+        titleColor: '#f9fafb',
+        bodyColor: '#f9fafb',
+        padding: 12,
+        cornerRadius: 8,
+        displayColors: false,
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        grid: {
+          display: false,
+        },
+        ticks: {
+          display: false,
+        },
+      },
+      x: {
+        grid: {
+          display: false,
+        },
+      },
+    },
+  };
+
+  const formatCurrency = (amount: number) => `Rp ${amount.toLocaleString('id-ID')}`;
+
   return (
     <ProtectedRoute>
-      <div className="p-4 sm:p-6 max-w-7xl mx-auto dark:text-white">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold">Welcome back, {session?.user?.name || 'User'}!</h1>
-            <p className="text-sm text-gray-500">It is the best time to manage your finances</p>
-          </div>
+      <PageContainer>
+        {/* Hero Section */}
+        <div className="mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-dark-text-primary mb-1">
+            Welcome back, {session?.user?.name || 'User'}!
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            It's the best time to manage your finances
+          </p>
         </div>
 
+        {/* Stat Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <StatTile title="Total balance" value={`Rp ${ (netWorth + totalIncome - totalExpense).toLocaleString() }`} delta="+12.1%" />
-          <StatTile title="Income" value={`Rp ${ totalIncome.toLocaleString() }`} delta="+6.3%" />
-          <StatTile title="Expense" value={`Rp ${ totalExpense.toLocaleString() }`} delta="-2.4%" />
-          <StatTile title="Total savings" value={`Rp ${ netWorth.toLocaleString() }`} delta="+12.1%" />
+          {loading ? (
+            <>
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </>
+          ) : (
+            <>
+              <StatCard
+                title="Total Balance"
+                value={formatCurrency(totalBalance)}
+                delta="+12.1%"
+                deltaPositive={true}
+                icon="💰"
+              />
+              <StatCard
+                title="Income"
+                value={formatCurrency(totalIncome)}
+                delta="+6.3%"
+                deltaPositive={true}
+                icon="📈"
+              />
+              <StatCard
+                title="Expense"
+                value={formatCurrency(totalExpense)}
+                delta="-2.4%"
+                deltaPositive={false}
+                icon="📉"
+              />
+              <StatCard
+                title="Total Savings"
+                value={formatCurrency(netWorth)}
+                delta="+12.1%"
+                deltaPositive={true}
+                icon="💎"
+              />
+            </>
+          )}
         </div>
 
+        {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <DashboardCard title="Money flow">
-              <div style={{ minHeight: 260 }}>
-                <Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false }} />
+          {/* Chart Section */}
+          <div className="lg:col-span-2 space-y-4">
+            <Card title="Money Flow">
+              <div style={{ minHeight: 300 }}>
+                {loading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="animate-pulse-soft text-gray-400">Loading chart...</div>
+                  </div>
+                ) : (
+                  <Line data={chartData} options={chartOptions} />
+                )}
               </div>
-            </DashboardCard>
-            <div className="mt-4">
-              <DashboardCard title="Recent transactions">
-                <div className="overflow-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="text-sm text-gray-500">
-                        <th className="py-2">Date</th>
-                        <th>Amount</th>
-                        <th>Category</th>
-                        <th>Description</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {finances.slice(0,6).map(f => (
-                        <tr key={f._id} className="border-t">
-                          <td className="py-2 text-sm text-gray-600">{new Date(f.date).toLocaleDateString()}</td>
-                          <td className={`text-sm ${f.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>{f.type === 'income' ? '+' : '-'} Rp {f.amount.toLocaleString()}</td>
-                          <td className="text-sm">{f.category}</td>
-                          <td className="text-sm text-gray-600">{f.description || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </DashboardCard>
-            </div>
+            </Card>
+            
+            {/* Recent Transactions */}
+            <Card title="Recent Transactions">
+              <div className="space-y-3">
+                {loading ? (
+                  <>
+                    <SkeletonTransaction />
+                    <SkeletonTransaction />
+                    <SkeletonTransaction />
+                  </>
+                ) : finances.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    No transactions yet
+                  </div>
+                ) : (
+                  finances.slice(0, 6).map(f => (
+                    <TransactionCard
+                      key={f._id}
+                      category={f.category}
+                      amount={f.amount}
+                      type={f.type}
+                      date={new Date(f.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      description={f.description}
+                    />
+                  ))
+                )}
+              </div>
+            </Card>
           </div>
 
-          <div>
-            <DashboardCard title="Budget">
+          {/* Sidebar */}
+          <div className="space-y-4">
+            {/* Budget Overview */}
+            <Card title="Budget Overview">
               <div className="space-y-3">
-                <div className="flex justify-between"><div className="text-sm text-gray-600">Cafe & Restaurants</div><div className="text-sm">25%</div></div>
-                <div className="w-full bg-gray-200 rounded h-2"><div className="bg-purple-500 h-2 rounded" style={{ width: '25%' }} /></div>
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Cafe & Restaurants</div>
+                  <div className="text-sm font-medium">25%</div>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                  <div className="bg-primary-500 h-2 rounded-full transition-all" style={{ width: '25%' }} />
+                </div>
+                
                 <div className="mt-4">
-                  <div className="text-sm text-gray-600">Saving goals</div>
-                  <div className="space-y-3 mt-2">
+                  <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Saving Goals</div>
+                  <div className="space-y-3">
                     <div>
-                      <div className="flex justify-between text-sm"><div>MacBook Pro</div><div>$1,650</div></div>
-                      <div className="w-full bg-gray-200 rounded h-2 mt-1"><div className="bg-indigo-500 h-2 rounded" style={{ width: '25%' }} /></div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <div>MacBook Pro</div>
+                        <div className="font-medium">Rp 1.650.000</div>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                        <div className="bg-primary-500 h-2 rounded-full transition-all" style={{ width: '25%' }} />
+                      </div>
                     </div>
                     <div>
-                      <div className="flex justify-between text-sm"><div>New car</div><div>$60,000</div></div>
-                      <div className="w-full bg-gray-200 rounded h-2 mt-1"><div className="bg-indigo-500 h-2 rounded" style={{ width: '42%' }} /></div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <div>New Car</div>
+                        <div className="font-medium">Rp 60.000.000</div>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                        <div className="bg-primary-500 h-2 rounded-full transition-all" style={{ width: '42%' }} />
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </DashboardCard>
+            </Card>
           </div>
         </div>
-      </div>
+      </PageContainer>
     </ProtectedRoute>
   );
 }

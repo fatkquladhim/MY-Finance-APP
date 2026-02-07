@@ -1,6 +1,5 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { connectToDatabase } from '@/lib/mongodb';
 import SavingGoal from '@/models/SavingGoal';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -27,14 +26,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    await connectToDatabase();
+    const goal = await SavingGoal.findById(id);
 
-    const goal = await SavingGoal.findOne({
-      _id: id,
-      userId: session.user.id
-    });
-
-    if (!goal) {
+    if (!goal || goal.user_id !== session.user.id) {
       return NextResponse.json({ error: 'Goal not found' }, { status: 404 });
     }
 
@@ -46,29 +40,31 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     // Add contribution
-    goal.contributions.push({
+    await SavingGoal.addContribution({
+      goal_id: id,
       amount,
-      date: new Date(),
       note: note || undefined
     });
 
     // Update current amount
-    goal.currentAmount += amount;
+    const newAmount = goal.current_amount + amount;
+    const updatedGoal = await SavingGoal.updateCurrentAmount(id, newAmount);
 
     // Check if goal is completed
-    if (goal.currentAmount >= goal.targetAmount) {
-      goal.status = 'completed';
+    if (newAmount >= goal.target_amount) {
+      await SavingGoal.findOneAndUpdate(
+        { id, userId: session.user.id },
+        { status: 'completed' }
+      );
     }
 
-    await goal.save();
-
-    const progress = Math.round((goal.currentAmount / goal.targetAmount) * 100);
+    const progress = Math.round((newAmount / goal.target_amount) * 100);
 
     return NextResponse.json({
-      ...goal.toObject(),
-      _id: goal._id.toString(),
+      ...updatedGoal,
+      id: updatedGoal?.id || id,
       progress: Math.min(100, progress),
-      message: goal.status === 'completed' 
+      message: newAmount >= goal.target_amount 
         ? 'Congratulations! Goal completed!' 
         : 'Contribution added successfully'
     });

@@ -1,6 +1,5 @@
 import User from "@/models/User";
 import { NextResponse } from "next/server";
-import { connectToDatabase } from "@/lib/mongodb";
 
 export async function POST(req: Request) {
   try {
@@ -15,17 +14,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    await connectToDatabase();
-
     const existing = await User.findOne({ email });
     if (existing) {
       return NextResponse.json({ error: "Email already in use" }, { status: 409 });
     }
 
-    const user = new User({ name, email, password });
-    await user.save();
+    const user = await User.create({ name, email, password });
 
-    return NextResponse.json({ message: "User created" }, { status: 201 });
+    return NextResponse.json({ message: "User created", id: user.id }, { status: 201 });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

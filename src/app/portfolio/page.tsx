@@ -1,10 +1,25 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
+import PageContainer from "@/components/layout/PageContainer";
 import { useEffect, useState } from "react";
+import PrimaryButton from "@/components/ui/buttons/PrimaryButton";
+import SecondaryButton from "@/components/ui/buttons/SecondaryButton";
+import Input from "@/components/ui/forms/Input";
+import Select from "@/components/ui/forms/Select";
+import Card from "@/components/ui/cards/Card";
+
+interface PortfolioItem {
+  _id: string;
+  asset: string;
+  type: 'stock' | 'crypto' | 'fund' | 'property';
+  quantity: number;
+  currentValue: number;
+  purchasePrice?: number;
+}
 
 export default function PortfolioPage() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<PortfolioItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [asset, setAsset] = useState("");
   const [ptype, setPtype] = useState<"stock" | "crypto" | "fund" | "property">("stock");
@@ -37,15 +52,23 @@ export default function PortfolioPage() {
     try {
       let res: Response;
       if (editingId) {
-        res = await fetch('/api/portfolio', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, ...payload }) });
+        res = await fetch('/api/portfolio', { 
+          method: 'PUT', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ id: editingId, ...payload }) 
+        });
       } else {
-        res = await fetch('/api/portfolio', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        res = await fetch('/api/portfolio', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(payload) 
+        });
       }
       if (res.ok) {
-        setItems(await (await fetch('/api/portfolio')).json());
+        const updated = await fetch('/api/portfolio');
+        setItems(await updated.json());
         resetForm();
       } else {
-        console.error(await res.text());
         alert('Gagal menyimpan portofolio');
       }
     } catch (err) {
@@ -54,10 +77,10 @@ export default function PortfolioPage() {
     }
   };
 
-  const handleEdit = (p: any) => {
+  const handleEdit = (p: PortfolioItem) => {
     setEditingId(p._id);
     setAsset(p.asset || "");
-    setPtype(p.type || 'stock');
+    setPtype(p.type || "stock");
     setQuantity(p.quantity || 1);
     setCurrentValue(p.currentValue || 0);
     setPurchasePrice(p.purchasePrice);
@@ -68,59 +91,136 @@ export default function PortfolioPage() {
     if (!confirm('Hapus item portofolio ini?')) return;
     try {
       const res = await fetch(`/api/portfolio?id=${id}`, { method: 'DELETE' });
-      if (res.ok) setItems((prev) => prev.filter(i => i._id !== id));
-      else alert('Gagal menghapus');
-    } catch (err) { console.error(err); alert('Kesalahan jaringan'); }
+      if (res.ok) {
+        setItems((prev) => prev.filter((i: PortfolioItem) => i._id !== id));
+      } else {
+        alert('Gagal menghapus');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Kesalahan jaringan');
+    }
   };
+
+  const formatCurrency = (value: number) => `Rp ${value.toLocaleString('id-ID')}`;
 
   return (
     <ProtectedRoute>
-      <div className="p-6 max-w-4xl mx-auto dark:text-white">
-        <h1 className="text-2xl font-bold mb-4">Portofolio</h1>
+      <PageContainer>
+        <div className="mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-dark-text-primary mb-1">
+            Portfolio
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Track your investments and assets
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit} className="mb-6 bg-gray-100 dark:bg-gray-800 p-4 rounded">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input value={asset} onChange={(e) => setAsset(e.target.value)} placeholder="Asset" className="p-2 border rounded dark:bg-gray-700" required />
-            <select value={ptype} onChange={(e) => setPtype(e.target.value as any)} className="p-2 border rounded dark:bg-gray-700">
-              <option value="stock">Stock</option>
-              <option value="crypto">Crypto</option>
-              <option value="fund">Fund</option>
-              <option value="property">Property</option>
-            </select>
-            <input type="number" value={quantity} onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)} className="p-2 border rounded dark:bg-gray-700" placeholder="Quantity" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-            <input type="number" value={currentValue} onChange={(e) => setCurrentValue(parseFloat(e.target.value) || 0)} className="p-2 border rounded dark:bg-gray-700" placeholder="Current Value" />
-            <input type="number" value={purchasePrice ?? ''} onChange={(e) => setPurchasePrice(e.target.value ? parseFloat(e.target.value) : undefined)} className="p-2 border rounded dark:bg-gray-700" placeholder="Purchase Price (optional)" />
-          </div>
-          <div className="mt-3">
-            <button type="submit" className="bg-blue-600 text-white px-3 py-1 rounded mr-2">{editingId ? 'Update' : 'Tambah'}</button>
-            {editingId && <button type="button" onClick={resetForm} className="px-3 py-1 rounded border">Batal</button>}
-          </div>
-        </form>
+        <Card className="mb-6">
+          <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-dark-text-primary">
+            {editingId ? 'Edit Item' : 'Add New Item'}
+          </h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Input
+                label="Asset Name"
+                type="text"
+                value={asset}
+                onChange={(e) => setAsset(e.target.value)}
+                placeholder="e.g., Apple Stock, Bitcoin"
+                required
+              />
+              <Select
+                label="Type"
+                value={ptype}
+                onChange={(e) => setPtype(e.target.value as 'stock' | 'crypto' | 'fund' | 'property')}
+                options={[
+                  { value: 'stock', label: 'Stock' },
+                  { value: 'crypto', label: 'Crypto' },
+                  { value: 'fund', label: 'Fund' },
+                  { value: 'property', label: 'Property' },
+                ]}
+              />
+              <Input
+                label="Quantity"
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
+                placeholder="1"
+                required
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Current Value (Rp)"
+                type="number"
+                value={currentValue}
+                onChange={(e) => setCurrentValue(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                required
+              />
+              <Input
+                label="Purchase Price (Rp)"
+                type="number"
+                value={purchasePrice}
+                onChange={(e) => setPurchasePrice(e.target.value ? parseFloat(e.target.value) : undefined)}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="flex gap-2 md:col-span-3">
+              <PrimaryButton type="submit" fullWidth>
+                {editingId ? 'Update' : 'Add Item'}
+              </PrimaryButton>
+              {editingId && (
+                <SecondaryButton type="button" onClick={resetForm} fullWidth>
+                  Cancel
+                </SecondaryButton>
+              )}
+            </div>
+          </form>
+        </Card>
 
         {items.length === 0 ? (
-          <p className="text-gray-500">Tidak ada data portofolio.</p>
+          <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-2xl">
+            <div className="text-6xl mb-4">💼</div>
+            <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-dark-text-primary">
+              No portfolio items yet
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
+              Start tracking your investments by adding your first item
+            </p>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {items.map((p) => (
-              <div key={p._id} className="p-3 bg-white dark:bg-gray-800 rounded shadow">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-semibold">{p.asset} <span className="text-sm text-gray-500">({p.type})</span></div>
-                    <div className="text-sm text-gray-500">Qty: {p.quantity}</div>
-                    <div className="text-sm">Rp {p.currentValue?.toLocaleString()}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {items.map((p: PortfolioItem) => (
+              <Card key={p._id}>
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xl">
+                      {p.type === 'stock' && '📈'}
+                      {p.type === 'crypto' && '₿'}
+                      {p.type === 'fund' && '💰'}
+                      {p.type === 'property' && '🏠'}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-dark-text-primary">{p.asset}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{p.type}</p>
+                    </div>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <button onClick={() => handleEdit(p)} className="text-sm text-blue-600">Edit</button>
-                    <button onClick={() => handleDelete(p._id)} className="text-sm text-red-600">Hapus</button>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleEdit(p)} className="text-primary-600 hover:text-primary-700 text-sm font-medium">
+                      Edit
+                    </button>
+                    <button onClick={() => handleDelete(p._id)} className="text-error-600 hover:text-error-700 text-sm font-medium">
+                      Hapus
+                    </button>
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
-      </div>
+      </PageContainer>
     </ProtectedRoute>
   );
 }

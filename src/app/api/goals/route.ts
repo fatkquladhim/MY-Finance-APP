@@ -1,6 +1,5 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { connectToDatabase } from '@/lib/mongodb';
 import SavingGoal from '@/models/SavingGoal';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -12,26 +11,20 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await connectToDatabase();
-
     const url = new URL(req.url);
     const status = url.searchParams.get('status') || 'active';
 
-    const query: any = { userId: session.user.id };
-    if (status !== 'all') {
-      query.status = status;
-    }
+    const goals = await SavingGoal.find({
+      userId: session.user.id,
+      status: status === 'all' ? undefined : status
+    });
 
-    const goals = await SavingGoal.find(query)
-      .sort({ priority: -1, createdAt: -1 })
-      .lean();
-
-    const formattedGoals = goals.map((goal: any) => {
-      const progress = goal.targetAmount > 0 
-        ? Math.round((goal.currentAmount / goal.targetAmount) * 100) 
+    const formattedGoals = goals.map((goal) => {
+      const progress = goal.target_amount > 0 
+        ? Math.round((goal.current_amount / goal.target_amount) * 100) 
         : 0;
 
-      let daysRemaining = null;
+      let daysRemaining: number | null = null;
       if (goal.deadline) {
         const now = new Date();
         const deadline = new Date(goal.deadline);
@@ -40,13 +33,11 @@ export async function GET(req: NextRequest) {
 
       return {
         ...goal,
-        _id: goal._id.toString(),
+        id: goal.id,
         progress: Math.min(100, progress),
         daysRemaining,
-        contributionsCount: goal.contributions?.length || 0,
-        lastContribution: goal.contributions?.length > 0 
-          ? goal.contributions[goal.contributions.length - 1] 
-          : null
+        contributionsCount: 0, // Will be populated if needed
+        lastContribution: null
       };
     });
 
@@ -78,29 +69,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await connectToDatabase();
-
-    const goal = new SavingGoal({
-      userId: session.user.id,
+    const goal = await SavingGoal.create({
+      user_id: session.user.id,
       name,
-      targetAmount,
-      currentAmount: currentAmount || 0,
+      target_amount: targetAmount,
+      current_amount: currentAmount || 0,
       deadline: deadline ? new Date(deadline) : undefined,
-      priority: priority || 'medium',
-      status: 'active',
-      contributions: currentAmount > 0 ? [{
-        amount: currentAmount,
-        date: new Date(),
-        note: 'Initial amount'
-      }] : []
+      priority: (priority as 'low' | 'medium' | 'high') || 'medium',
+      status: 'active'
     });
 
-    await goal.save();
+    // Add initial contribution if currentAmount > 0
+    if (currentAmount && currentAmount > 0) {
+      await SavingGoal.addContribution({
+        goal_id: goal.id,
+        amount: currentAmount,
+        note: 'Initial amount'
+      });
+    }
 
     return NextResponse.json({
-      ...goal.toObject(),
-      _id: goal._id.toString(),
-      progress: Math.round((goal.currentAmount / goal.targetAmount) * 100)
+      ...goal,
+      id: goal.id,
+      progress: Math.round((goal.current_amount / goal.target_amount) * 100)
     }, { status: 201 });
   } catch (error) {
     console.error('Error creating goal:', error);
@@ -120,26 +111,15 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, ...updates } = body;
+    const { id, ...updates } = body as { id: string } & { name?: string; target_amount?: number; deadline?: Date; priority?: string; status?: string };
 
     if (!id) {
       return NextResponse.json({ error: 'Goal ID is required' }, { status: 400 });
     }
 
-    await connectToDatabase();
-
-    // Only allow updating certain fields
-    const allowedUpdates: Record<string, any> = {};
-    if (updates.name !== undefined) allowedUpdates.name = updates.name;
-    if (updates.targetAmount !== undefined) allowedUpdates.targetAmount = updates.targetAmount;
-    if (updates.deadline !== undefined) allowedUpdates.deadline = updates.deadline ? new Date(updates.deadline) : null;
-    if (updates.priority !== undefined) allowedUpdates.priority = updates.priority;
-    if (updates.status !== undefined) allowedUpdates.status = updates.status;
-
     const goal = await SavingGoal.findOneAndUpdate(
-      { _id: id, userId: session.user.id },
-      allowedUpdates,
-      { new: true }
+      { id, userId: session.user.id },
+      updates as { name?: string; target_amount?: number; deadline?: Date; priority?: 'low' | 'medium' | 'high'; status?: 'active' | 'completed' | 'abandoned' }
     );
 
     if (!goal) {
@@ -147,9 +127,9 @@ export async function PUT(req: NextRequest) {
     }
 
     return NextResponse.json({
-      ...goal.toObject(),
-      _id: goal._id.toString(),
-      progress: Math.round((goal.currentAmount / goal.targetAmount) * 100)
+      ...goal,
+      id: goal.id,
+      progress: Math.round((goal.current_amount / goal.target_amount) * 100)
     });
   } catch (error) {
     console.error('Error updating goal:', error);
@@ -175,10 +155,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Goal ID is required' }, { status: 400 });
     }
 
-    await connectToDatabase();
-
     const result = await SavingGoal.findOneAndDelete({
-      _id: id,
+      id,
       userId: session.user.id
     });
 

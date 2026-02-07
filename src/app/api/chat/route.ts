@@ -2,7 +2,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/mongodb';
 import ChatConversation from '@/models/ChatConversation';
-import { createChatCompletion, generateConversationTitle } from '@/lib/openai';
+import { createChatCompletion, generateConversationTitle } from '@/lib/openrouter';
 import { checkRateLimit, getRateLimitHeaders } from '@/lib/rate-limit';
 import { NextRequest, NextResponse } from 'next/server';
 import type { ChatRequest } from '@/types/chat';
@@ -70,11 +70,28 @@ export async function POST(req: NextRequest) {
 
     // Build messages for OpenAI (last 10 messages for context)
     const recentMessages = conversation.messages
-      .slice(-10)
-      .map((m: any) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content
-      }));
+    .slice(-10)
+    .map((m: unknown) => {
+      if (
+        typeof m === 'object' &&
+        m !== null &&
+        'role' in m &&
+        'content' in m
+      ) {
+        const msg = m as {
+          role: 'user' | 'assistant' | 'system';
+          content: string;
+        };
+
+        return {
+          role: msg.role === 'system' ? 'user' : msg.role,
+          content: msg.content,
+        };
+      }
+
+      throw new Error('Invalid message format');
+    });
+
 
     // Get AI response
     const aiResult = await createChatCompletion({

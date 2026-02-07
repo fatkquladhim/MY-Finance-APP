@@ -1,6 +1,5 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { connectToDatabase } from "@/lib/mongodb";
 import Portfolio from "@/models/Portfolio";
 import { NextResponse } from "next/server";
 
@@ -9,8 +8,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    await connectToDatabase();
-    const items = await Portfolio.find({ userId: session.user.id }).sort({ createdAt: -1 });
+    const items = await Portfolio.find({ userId: session.user.id });
     return NextResponse.json(items);
   } catch (err) {
     console.error(err);
@@ -24,9 +22,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    await connectToDatabase();
-    const p = new Portfolio({ ...body, userId: session.user.id });
-    await p.save();
+    const p = await Portfolio.create({ ...body, user_id: session.user.id });
     return NextResponse.json(p, { status: 201 });
   } catch (err) {
     console.error(err);
@@ -40,10 +36,9 @@ export async function PUT(req: Request) {
 
   try {
     const body = await req.json();
-    const { id, ...updates } = body as any;
+    const { id, ...updates } = body as { id: string } & { asset?: string; type?: string; quantity?: number; current_value?: number; purchase_price?: number };
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    await connectToDatabase();
-    const p = await Portfolio.findOneAndUpdate({ _id: id, userId: session.user.id }, updates, { new: true });
+    const p = await Portfolio.findOneAndUpdate({ id, userId: session.user.id }, updates as { asset?: string; type?: 'stock' | 'crypto' | 'fund' | 'property'; quantity?: number; current_value?: number; purchase_price?: number });
     if (!p) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(p);
   } catch (err) {
@@ -60,10 +55,9 @@ export async function DELETE(req: Request) {
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
     const body = await req.json().catch(() => ({}));
-    const payloadId = (body && (body as any).id) || id;
+    const payloadId = (body && typeof body === 'object' && 'id' in body) ? (body as { id: string }).id : id;
     if (!payloadId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    await connectToDatabase();
-    const res = await Portfolio.findOneAndDelete({ _id: payloadId, userId: session.user.id });
+    const res = await Portfolio.findOneAndDelete({ id: payloadId, userId: session.user.id });
     if (!res) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ message: "Deleted" });
   } catch (err) {

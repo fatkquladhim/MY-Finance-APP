@@ -1,6 +1,5 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { connectToDatabase } from '@/lib/mongodb';
 import ChatConversation from '@/models/ChatConversation';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -12,8 +11,6 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await connectToDatabase();
-
     const url = new URL(req.url);
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '20');
@@ -21,29 +18,26 @@ export async function GET(req: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const query = {
-      userId: session.user.id,
-      status
-    };
-
     const [conversations, total] = await Promise.all([
-      ChatConversation.find(query)
-        .sort({ lastMessageAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .select('title messages lastMessageAt status')
-        .lean(),
-      ChatConversation.countDocuments(query)
+      ChatConversation.find({
+        userId: session.user.id,
+        status: status as 'active' | 'archived',
+        limit,
+        skip
+      }),
+      ChatConversation.countDocuments({
+        userId: session.user.id,
+        status: status as 'active' | 'archived'
+      })
     ]);
 
-    const formattedConversations = conversations.map((conv: any) => {
-      const lastMessage = conv.messages[conv.messages.length - 1];
+    const formattedConversations = conversations.map((conv) => {
       return {
-        id: conv._id.toString(),
+        id: conv.id,
         title: conv.title,
-        lastMessage: lastMessage?.content?.substring(0, 100) || '',
-        lastMessageAt: conv.lastMessageAt?.toISOString() || '',
-        messageCount: conv.messages?.length || 0
+        lastMessage: '',
+        lastMessageAt: conv.last_message_at?.toISOString() || '',
+        messageCount: 0
       };
     });
 
@@ -73,13 +67,18 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    await connectToDatabase();
-
     // Archive all conversations instead of hard delete
-    await ChatConversation.updateMany(
-      { userId: session.user.id, status: 'active' },
-      { status: 'archived' }
-    );
+    const conversations = await ChatConversation.find({
+      userId: session.user.id,
+      status: 'active'
+    });
+
+    for (const conv of conversations) {
+      await ChatConversation.findOneAndUpdate(
+        { id: conv.id, userId: session.user.id },
+        { status: 'archived' }
+      );
+    }
 
     return NextResponse.json({ message: 'All conversations archived' });
   } catch (error) {

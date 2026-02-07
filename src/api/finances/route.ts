@@ -1,7 +1,6 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { connectToDatabase } from "@/lib/mongodb";
-import Finance from "@/models/Finance";
+import Finance, { UpdateFinanceInput } from "@/models/Finance";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
@@ -9,8 +8,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    await connectToDatabase();
-    const finances = await Finance.find({ userId: session.user.id }).sort({ date: -1 });
+    const finances = await Finance.find({ userId: session.user.id });
     return NextResponse.json(finances);
   } catch (error) {
     return NextResponse.json({ error: "Gagal mengambil data" }, { status: 500 });
@@ -23,9 +21,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    await connectToDatabase();
-    const finance = new Finance({ ...body, userId: session.user.id });
-    await finance.save();
+    const finance = await Finance.create({ ...body, user_id: session.user.id });
     return NextResponse.json(finance, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: "Gagal menyimpan data" }, { status: 500 });
@@ -38,10 +34,9 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, ...updates } = body as any;
+    const { id, ...updates } = body as { id: string } & UpdateFinanceInput;
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    await connectToDatabase();
-    const finance = await Finance.findOneAndUpdate({ _id: id, userId: session.user.id }, updates, { new: true });
+    const finance = await Finance.findOneAndUpdate({ id, userId: session.user.id }, updates);
     if (!finance) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(finance);
   } catch (error) {
@@ -59,10 +54,9 @@ export async function DELETE(req: NextRequest) {
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
     const body = await req.json().catch(() => ({}));
-    const payloadId = (body && (body as any).id) || id;
+    const payloadId = (body && typeof body === 'object' && 'id' in body) ? (body as { id: string }).id : id;
     if (!payloadId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-    await connectToDatabase();
-    const res = await Finance.findOneAndDelete({ _id: payloadId, userId: session.user.id });
+    const res = await Finance.findOneAndDelete({ id: payloadId, userId: session.user.id });
     if (!res) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ message: "Deleted" });
   } catch (error) {

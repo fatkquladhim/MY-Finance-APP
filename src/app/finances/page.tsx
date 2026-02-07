@@ -3,6 +3,24 @@
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/useToast";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import PageContainer from "@/components/layout/PageContainer";
+import TransactionCard from "@/components/ui/cards/TransactionCard";
+import { EmptyTransactions } from "@/components/ui/feedback/EmptyState";
+import { SkeletonTransaction } from "@/components/ui/loading/Skeleton";
+import PrimaryButton from "@/components/ui/buttons/PrimaryButton";
+import SecondaryButton from "@/components/ui/buttons/SecondaryButton";
+import Input from "@/components/ui/forms/Input";
+import Select from "@/components/ui/forms/Select";
+import Card from "@/components/ui/cards/Card";
+
+interface Finance {
+  _id: string;
+  type: 'income' | 'expense';
+  amount: number;
+  category: string;
+  description?: string;
+  date: string;
+}
 
 export default function FinancesPage() {
   const { showToast } = useToast();
@@ -11,13 +29,16 @@ export default function FinancesPage() {
   const [description, setDescription] = useState("");
   const [type, setType] = useState<"income" | "expense">("income");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [finances, setFinances] = useState<any[]>([]);
+  const [finances, setFinances] = useState<Finance[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     const fetchFinances = async () => {
       const res = await fetch("/api/finances");
       const data = await res.json();
       setFinances(data);
+      setLoading(false);
     };
     fetchFinances();
   }, []);
@@ -46,6 +67,7 @@ export default function FinancesPage() {
         setCategory("");
         setDescription("");
         setEditingId(null);
+        setShowForm(false);
         const updated = await fetch("/api/finances");
         setFinances(await updated.json());
       } else {
@@ -57,12 +79,13 @@ export default function FinancesPage() {
     }
   };
 
-  const handleEdit = (f: any) => {
+  const handleEdit = (f: Finance) => {
     setEditingId(f._id);
     setAmount(String(f.amount));
     setCategory(f.category || "");
     setDescription(f.description || "");
     setType(f.type || "income");
+    setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -107,115 +130,145 @@ export default function FinancesPage() {
     URL.revokeObjectURL(url);
   };
 
+  const typeOptions = [
+    { value: 'income', label: 'Pendapatan' },
+    { value: 'expense', label: 'Pengeluaran' },
+  ];
+
+  const categories = [
+    'Makanan & Minuman',
+    'Transportasi',
+    'Belanja',
+    'Hiburan',
+    'Kesehatan',
+    'Pendidikan',
+    'Tagihan & Utilitas',
+    'Gaji',
+    'Bonus',
+    'Investasi',
+    'Lainnya'
+  ];
+
   return (
     <ProtectedRoute>
-      <div className="p-6 max-w-2xl mx-auto dark:text-white">
-        <h1 className="text-3xl font-bold mb-6">Manajemen Keuangan</h1>
-
-        <form onSubmit={handleSubmit} className="mb-8 bg-gray-100 dark:bg-gray-800 p-4 rounded">
-          <h2 className="text-xl mb-4">{type === "income" ? "Tambah Pendapatan" : "Tambah Pengeluaran"}</h2>
-          <div className="mb-3">
-            <label className="block">Jenis</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as any)}
-              className="border p-2 w-full dark:bg-gray-700 dark:text-white dark:border-gray-600"
+      <PageContainer>
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-dark-text-primary mb-1">
+              Transactions
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Track your income and expenses
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={exportToCSV}
+              className="btn btn-success"
             >
-              <option value="income">Pendapatan</option>
-              <option value="expense">Pengeluaran</option>
-            </select>
+              📥 Export CSV
+            </button>
           </div>
-          <div className="mb-3">
-            <label>Jumlah</label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="border p-2 w-full dark:bg-gray-700 dark:text-white dark:border-gray-600"
-              required
-            />
-          </div>
-          <div className="mb-3">
-            <label>Kategori</label>
-            <input
-              type="text"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="border p-2 w-full dark:bg-gray-700 dark:text-white dark:border-gray-600"
-              required
-            />
-          </div>
-          <div className="mb-3">
-            <label>Deskripsi</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="border p-2 w-full dark:bg-gray-700 dark:text-white dark:border-gray-600"
-            />
-          </div>
-          <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded">
-            Simpan
-          </button>
-        </form>
-
-        <div className="flex justify-between items-center mb-4">
-          <h2>Riwayat Keuangan</h2>
-          <button
-            onClick={exportToCSV}
-            className="bg-green-600 text-white px-3 py-1 rounded text-sm"
-          >
-            Export CSV
-          </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full bg-white dark:bg-gray-800 rounded hidden md:table">
-            <thead>
-              <tr className="bg-gray-100 dark:bg-gray-700">
-                <th className="p-2 text-left">Tanggal</th>
-                <th className="p-2 text-left">Kategori</th>
-                <th className="p-2 text-left">Jumlah</th>
-                <th className="p-2 text-left">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {finances.map((f) => (
-                <tr key={f._id} className="border-b dark:border-gray-700">
-                  <td className="py-2 px-4">{new Date(f.date).toLocaleDateString()}</td>
-                  <td className="py-2 px-4">{f.category}</td>
-                  <td className={`py-2 px-4 ${f.type === "income" ? "text-green-600" : "text-red-600"}`}>
-                    {f.type === "income" ? "+" : "-"} Rp {f.amount.toLocaleString()}
-                  </td>
-                  <td className="py-2 px-4">
-                    <button onClick={() => handleEdit(f)} className="text-sm text-blue-600 mr-2">Edit</button>
-                    <button onClick={() => handleDelete(f._id)} className="text-sm text-red-600">Hapus</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Quick Actions */}
+        <div className="flex gap-3 mb-6">
+          <PrimaryButton
+            onClick={() => { setType('income'); setShowForm(true); }}
+            fullWidth
+          >
+            + Add Income
+          </PrimaryButton>
+          <SecondaryButton
+            onClick={() => { setType('expense'); setShowForm(true); }}
+            fullWidth
+          >
+            + Add Expense
+          </SecondaryButton>
+        </div>
 
-          {/* Mobile cards */}
-          <div className="space-y-3 md:hidden">
-            {finances.map((f) => (
-              <div key={f._id} className="p-3 bg-white dark:bg-gray-800 rounded shadow">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-semibold">{f.category}</div>
-                    <div className="text-sm text-gray-500">{new Date(f.date).toLocaleDateString()}</div>
-                    <div className={f.type === "income" ? "text-green-600" : "text-red-600"}>{f.type === "income" ? "+" : "-"} Rp {f.amount.toLocaleString()}</div>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <button onClick={() => handleEdit(f)} className="text-sm text-blue-600 mb-2">Edit</button>
-                    <button onClick={() => handleDelete(f._id)} className="text-sm text-red-600">Hapus</button>
-                  </div>
-                </div>
+        {/* Form */}
+        {showForm && (
+          <Card className="mb-6">
+            <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-dark-text-primary">
+              {editingId ? 'Edit Transaction' : 'Add Transaction'}
+            </h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <Select
+                label="Type"
+                value={type}
+                onChange={(e) => setType(e.target.value as 'income' | 'expense')}
+                options={typeOptions}
+              />
+              <Input
+                label="Amount"
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="100000"
+                required
+              />
+              <Select
+                label="Category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                options={categories.map(cat => ({ value: cat, label: cat }))}
+                required
+              />
+              <Input
+                label="Description"
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional description"
+              />
+              <div className="flex gap-2">
+                <PrimaryButton type="submit" fullWidth>
+                  {editingId ? 'Update' : 'Save'}
+                </PrimaryButton>
+                {editingId && (
+                  <SecondaryButton
+                    type="button"
+                    onClick={() => { setShowForm(false); setEditingId(null); }}
+                    fullWidth
+                  >
+                    Cancel
+                  </SecondaryButton>
+                )}
               </div>
+            </form>
+          </Card>
+        )}
+
+        {/* Transaction List */}
+        {loading ? (
+          <div className="space-y-3">
+            <SkeletonTransaction />
+            <SkeletonTransaction />
+            <SkeletonTransaction />
+            <SkeletonTransaction />
+            <SkeletonTransaction />
+          </div>
+        ) : finances.length === 0 ? (
+          <EmptyTransactions onAdd={() => setShowForm(true)} />
+        ) : (
+          <div className="space-y-3">
+            {finances.map((f) => (
+              <TransactionCard
+                key={f._id}
+                category={f.category}
+                amount={f.amount}
+                type={f.type}
+                date={new Date(f.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                description={f.description}
+                onEdit={() => handleEdit(f)}
+                onDelete={() => handleDelete(f._id)}
+              />
             ))}
           </div>
-        </div>
-      </div>
+        )}
+      </PageContainer>
     </ProtectedRoute>
   );
 }

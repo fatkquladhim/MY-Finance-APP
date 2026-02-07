@@ -1,6 +1,5 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { connectToDatabase } from '@/lib/mongodb';
 import ChatConversation from '@/models/ChatConversation';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -17,28 +16,26 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { id } = await params;
-    await connectToDatabase();
 
-    const conversation = await ChatConversation.findOne({
-      _id: id,
-      userId: session.user.id
-    }).lean();
+    const conversation = await ChatConversation.findById(id);
 
-    if (!conversation) {
+    if (!conversation || conversation.user_id !== session.user.id) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
+    const messages = await ChatConversation.getMessages(id);
+
     return NextResponse.json({
-      id: (conversation as any)._id.toString(),
-      title: (conversation as any).title,
-      status: (conversation as any).status,
-      messages: (conversation as any).messages.map((m: any) => ({
+      id: conversation.id,
+      title: conversation.title,
+      status: conversation.status,
+      messages: messages.map((m) => ({
         role: m.role,
         content: m.content,
         timestamp: m.timestamp?.toISOString() || new Date().toISOString()
       })),
-      lastMessageAt: (conversation as any).lastMessageAt?.toISOString(),
-      createdAt: (conversation as any).createdAt?.toISOString()
+      lastMessageAt: conversation.last_message_at?.toISOString(),
+      createdAt: conversation.created_at?.toISOString()
     });
   } catch (error) {
     console.error('Error fetching conversation:', error);
@@ -61,12 +58,10 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     const body = await req.json();
     const { title, status } = body;
 
-    await connectToDatabase();
-
-    const updateData: Record<string, any> = {};
+    const updateData: { title?: string; status?: 'active' | 'archived' } = {};
     if (title !== undefined) updateData.title = title;
     if (status !== undefined && ['active', 'archived'].includes(status)) {
-      updateData.status = status;
+      updateData.status = status as 'active' | 'archived';
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -74,9 +69,8 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     }
 
     const conversation = await ChatConversation.findOneAndUpdate(
-      { _id: id, userId: session.user.id },
-      updateData,
-      { new: true }
+      { id, userId: session.user.id },
+      updateData
     );
 
     if (!conversation) {
@@ -84,7 +78,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     }
 
     return NextResponse.json({
-      id: conversation._id.toString(),
+      id: conversation.id,
       title: conversation.title,
       status: conversation.status,
       message: 'Conversation updated'
@@ -107,11 +101,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   try {
     const { id } = await params;
-    await connectToDatabase();
 
     // Soft delete by archiving
     const result = await ChatConversation.findOneAndUpdate(
-      { _id: id, userId: session.user.id },
+      { id, userId: session.user.id },
       { status: 'archived' }
     );
 

@@ -1,4 +1,4 @@
-import { User } from "@/models/User";
+import { UserModel } from "@/models/User";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -14,12 +14,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    const existing = await User.findByEmail(email);
+    const existing = await UserModel.findByEmail(email);
     if (existing) {
       return NextResponse.json({ error: "Email already in use" }, { status: 409 });
     }
 
-    const user = await User.create({ name, email, password });
+    const user = await UserModel.create({ name, email, password });
 
     return NextResponse.json({ message: "User created", id: user.id }, { status: 201 });
   } catch (err) {

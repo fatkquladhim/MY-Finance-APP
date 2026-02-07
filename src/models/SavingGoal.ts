@@ -1,6 +1,6 @@
 import { getDb, schema } from '@/lib/db';
 import { eq, and, desc } from 'drizzle-orm';
-import type { SavingGoal, NewSavingGoal, GoalContribution, NewGoalContribution } from '@/lib/db/schema';
+import type { savingGoals, NewSavingGoal, GoalContribution, NewGoalContribution } from '@/lib/db/schema';
 
 export class SavingGoal {
   static async create(goalData: Omit<NewSavingGoal, 'id' | 'createdAt' | 'updatedAt'>) {

@@ -1,9 +1,9 @@
 import { getDb, schema } from '@/lib/db';
 import { eq } from 'drizzle-orm';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import type { User, NewUser } from '@/lib/db/schema';
 
-export class User {
+export class UserModel {
   static async create(userData: Omit<NewUser, 'id' | 'createdAt' | 'updatedAt'>) {
     const db = getDb();
     
@@ -44,7 +44,7 @@ export class User {
     const db = getDb();
     
     // If password is being updated, hash it
-    if (updates.password) {
+    if ('password' in updates && updates.password) {
       updates.password = await bcrypt.hash(updates.password, 10);
     }
     

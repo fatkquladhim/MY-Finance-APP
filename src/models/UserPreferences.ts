@@ -1,6 +1,6 @@
 import { getDb, schema } from '@/lib/db';
 import { eq } from 'drizzle-orm';
-import type { UserPreferences, NewUserPreferences } from '@/lib/db/schema';
+import type { userPreferences, NewUserPreferences } from '@/lib/db/schema';
 
 export class UserPreferences {
   static async create(preferencesData: Omit<NewUserPreferences, 'id' | 'createdAt' | 'updatedAt'>) {

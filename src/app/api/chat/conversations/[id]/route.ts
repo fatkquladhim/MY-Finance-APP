@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { ChatConversation } from '@/models/ChatConversation';
+import { ChatConversationModel } from '@/models/ChatConversation';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface RouteParams {
@@ -17,13 +17,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
 
-    const conversation = await ChatConversation.findById(id);
+    const conversation = await ChatConversationModel.findById(id);
 
     if (!conversation || conversation.userId !== session.user.id) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const messages = await ChatConversation.getMessages(id);
+    const messages = await ChatConversationModel.getMessages(id);
 
     return NextResponse.json({
       id: conversation.id,
@@ -61,12 +61,12 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     }
 
     // Verify ownership
-    const existing = await ChatConversation.findById(id);
+    const existing = await ChatConversationModel.findById(id);
     if (!existing || existing.userId !== session.user.id) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const conversation = await ChatConversation.update(id, { title });
+    const conversation = await ChatConversationModel.update(id, { title });
 
     if (!conversation) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
@@ -97,12 +97,12 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const { id } = await params;
 
     // Verify ownership
-    const existing = await ChatConversation.findById(id);
+    const existing = await ChatConversationModel.findById(id);
     if (!existing || existing.userId !== session.user.id) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const result = await ChatConversation.delete(id);
+    const result = await ChatConversationModel.delete(id);
 
     if (!result) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });

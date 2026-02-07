@@ -1,6 +1,6 @@
 import NextAuth, { type AuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { User } from "@/models/User";
+import { UserModel } from "@/models/User";
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -13,10 +13,10 @@ export const authOptions: AuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await User.findByEmail(credentials.email);
+        const user = await UserModel.findByEmail(credentials.email);
         if (!user) return null;
 
-        const isMatch = await User.verifyPassword(credentials.password, user.password);
+        const isMatch = await UserModel.verifyPassword(credentials.password, user.password);
         if (!isMatch) return null;
 
         return { id: user.id, email: user.email, name: user.name };

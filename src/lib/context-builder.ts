@@ -1,6 +1,6 @@
 import { Finance } from '@/models/Finance';
 import { Portfolio } from '@/models/Portfolio';
-import { Budget } from '@/models/Budget';
+import { BudgetModel } from '@/models/Budget';
 import { SavingGoal } from '@/models/SavingGoal';
 import { formatFinancialContext } from './prompts';
 import type { FinancialSummary, CategorySummary, BudgetSummary, GoalSummary } from '@/types/insights';
@@ -20,7 +20,7 @@ export async function getFinancialSummary(userId: string): Promise<FinancialSumm
   const [finances, portfolioItems, budgets, goals] = await Promise.all([
     Finance.findByDateRange(userId, startDate, endDate),
     Portfolio.findByUserId(userId),
-    Budget.findByMonthYear(
+    BudgetModel.findByMonthYear(
       userId,
       (endDate.getMonth() + 1).toString().padStart(2, '0'),
       endDate.getFullYear().toString()

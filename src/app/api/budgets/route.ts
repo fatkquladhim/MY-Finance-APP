@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { Budget } from '@/models/Budget';
+import { BudgetModel } from '@/models/Budget';
 import { Finance } from '@/models/Finance';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const year = url.searchParams.get('year') || new Date().getFullYear().toString();
     const month = url.searchParams.get('month') || (new Date().getMonth() + 1).toString().padStart(2, '0');
 
-    const budgets = await Budget.findByMonthYear(session.user.id, month, year);
+    const budgets = await BudgetModel.findByMonthYear(session.user.id, month, year);
 
     // Calculate spent amounts for each budget
     const monthStart = new Date(parseInt(year), parseInt(month) - 1, 1);
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     const budgetYear = year || now.getFullYear().toString();
 
     // Check if budget already exists for this category and period
-    const existingBudgets = await Budget.findByMonthYear(
+    const existingBudgets = await BudgetModel.findByMonthYear(
       session.user.id,
       budgetMonth,
       budgetYear
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const budget = await Budget.create({
+    const budget = await BudgetModel.create({
       userId: session.user.id,
       category,
       amount: String(monthlyLimit),
@@ -126,12 +126,12 @@ export async function PUT(req: NextRequest) {
     }
 
     // Verify ownership
-    const existing = await Budget.findById(id);
+    const existing = await BudgetModel.findById(id);
     if (!existing || existing.userId !== session.user.id) {
       return NextResponse.json({ error: 'Budget not found' }, { status: 404 });
     }
 
-    const budget = await Budget.update(id, updates);
+    const budget = await BudgetModel.update(id, updates);
 
     if (!budget) {
       return NextResponse.json({ error: 'Budget not found' }, { status: 404 });
@@ -163,12 +163,12 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Verify ownership
-    const existing = await Budget.findById(id);
+    const existing = await BudgetModel.findById(id);
     if (!existing || existing.userId !== session.user.id) {
       return NextResponse.json({ error: 'Budget not found' }, { status: 404 });
     }
 
-    const result = await Budget.delete(id);
+    const result = await BudgetModel.delete(id);
 
     if (!result) {
       return NextResponse.json({ error: 'Budget not found' }, { status: 404 });

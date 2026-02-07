@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { Finance } from "@/models/Finance";
 import { NextRequest, NextResponse } from "next/server";
+import { console } from "inspector/promises";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -11,6 +12,8 @@ export async function GET() {
     const finances = await Finance.findByUserId(session.user.id);
     return NextResponse.json(finances);
   } catch (error) {
+    console.error(error)
+
     return NextResponse.json({ error: "Gagal mengambil data" }, { status: 500 });
   }
 }
@@ -24,6 +27,8 @@ export async function POST(req: NextRequest) {
     const finance = await Finance.create({ ...body, userId: session.user.id });
     return NextResponse.json(finance, { status: 201 });
   } catch (error) {
+    console.error(error);
+
     return NextResponse.json({ error: "Gagal menyimpan data" }, { status: 500 });
   }
 }

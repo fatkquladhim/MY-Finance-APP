@@ -2,7 +2,7 @@ import { getDb, schema } from '@/lib/db';
 import { eq, and, desc } from 'drizzle-orm';
 import type { Budget, NewBudget } from '@/lib/db/schema';
 
-export class Budget {
+export class BudgetModel {
   static async create(budgetData: Omit<NewBudget, 'id' | 'createdAt' | 'updatedAt'>) {
     const db = getDb();
     const [budget] = await db.insert(schema.budgets)

@@ -1,11 +1,11 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { connectToDatabase } from '@/lib/mongodb';
-import ChatConversation from '@/models/ChatConversation';
+import { ChatConversationModel } from '@/models/ChatConversation';
 import { createChatCompletion, generateConversationTitle } from '@/lib/openrouter';
 import { checkRateLimit, getRateLimitHeaders } from '@/lib/rate-limit';
 import { NextRequest, NextResponse } from 'next/server';
 import type { ChatRequest } from '@/types/chat';
+import type { ChatCompletionMessage } from '@/lib/openrouter';
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -35,63 +35,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    await connectToDatabase();
-
     let conversation;
     let isNewConversation = false;
 
     if (conversationId) {
       // Find existing conversation
-      conversation = await ChatConversation.findOne({
-        _id: conversationId,
-        userId
-      });
+      conversation = await ChatConversationModel.findById(conversationId);
 
-      if (!conversation) {
+      if (!conversation || conversation.userId !== userId) {
         return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
       }
     } else {
       // Create new conversation
       isNewConversation = true;
-      conversation = new ChatConversation({
+      conversation = await ChatConversationModel.create({
         userId,
-        title: 'New Conversation',
-        messages: [],
-        status: 'active'
+        title: 'New Conversation'
       });
     }
 
     // Add user message to conversation
-    conversation.messages.push({
-      role: 'user',
-      content: message.trim(),
-      timestamp: new Date()
-    });
+    await ChatConversationModel.addMessage(conversation.id, 'user', message.trim());
 
-    // Build messages for OpenAI (last 10 messages for context)
-    const recentMessages = conversation.messages
-    .slice(-10)
-    .map((m: unknown) => {
-      if (
-        typeof m === 'object' &&
-        m !== null &&
-        'role' in m &&
-        'content' in m
-      ) {
-        const msg = m as {
-          role: 'user' | 'assistant' | 'system';
-          content: string;
-        };
-
-        return {
-          role: msg.role === 'system' ? 'user' : msg.role,
-          content: msg.content,
-        };
-      }
-
-      throw new Error('Invalid message format');
-    });
-
+    // Get messages for AI context (last 10 messages)
+    const messages = await ChatConversationModel.getMessages(conversation.id);
+    const recentMessages: ChatCompletionMessage[] = messages
+      .slice(-10)
+      .map((m) => ({
+        role: (m.role === 'system' ? 'user' : m.role) as 'user' | 'assistant' | 'system',
+        content: m.content,
+      }));
 
     // Get AI response
     const aiResult = await createChatCompletion({
@@ -101,35 +74,20 @@ export async function POST(req: NextRequest) {
     });
 
     // Add assistant response to conversation
-    const assistantMessage = {
-      role: 'assistant' as const,
-      content: aiResult.content,
-      timestamp: new Date(),
-      metadata: {
-        tokensUsed: aiResult.tokensUsed,
-        model: aiResult.model,
-        financeContext: includeFinancialContext
-      }
-    };
-    conversation.messages.push(assistantMessage);
+    await ChatConversationModel.addMessage(conversation.id, 'assistant', aiResult.content);
 
     // Generate title for new conversations
     if (isNewConversation) {
-      conversation.title = await generateConversationTitle(message);
+      const title = await generateConversationTitle(message);
+      await ChatConversationModel.update(conversation.id, { title });
     }
 
-    // Update last message timestamp
-    conversation.lastMessageAt = new Date();
-
-    // Save conversation
-    await conversation.save();
-
     return NextResponse.json({
-      conversationId: conversation._id.toString(),
+      conversationId: conversation.id,
       response: {
         role: 'assistant',
         content: aiResult.content,
-        timestamp: assistantMessage.timestamp.toISOString()
+        timestamp: new Date().toISOString()
       },
       metadata: {
         tokensUsed: aiResult.tokensUsed,

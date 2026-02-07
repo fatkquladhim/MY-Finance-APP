@@ -1,6 +1,6 @@
 import { getDb, schema } from '@/lib/db';
 import { eq, and, gte, lte, desc, sql } from 'drizzle-orm';
-import type { Finance, NewFinance } from '@/lib/db/schema';
+import type { finances, NewFinance } from '@/lib/db/schema';
 
 export class Finance {
   static async create(financeData: Omit<NewFinance, 'id' | 'createdAt' | 'updatedAt'>) {

@@ -1,6 +1,6 @@
 import { getDb, schema } from '@/lib/db';
 import { eq, and, desc } from 'drizzle-orm';
-import type { Portfolio, NewPortfolio } from '@/lib/db/schema';
+import type { portfolio, NewPortfolio } from '@/lib/db/schema';
 
 export class Portfolio {
   static async create(portfolioData: Omit<NewPortfolio, 'id' | 'createdAt' | 'updatedAt'>) {

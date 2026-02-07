@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { User } from "@/models/User";
+import { UserModel } from "@/models/User";
 import { NextResponse } from "next/server";
 
 export async function PUT(req: Request) {
@@ -10,7 +10,7 @@ export async function PUT(req: Request) {
   try {
     const body = await req.json();
     const { name } = body as { name?: string };
-    const user = await User.update(session.user.id, { name });
+    const user = await UserModel.update(session.user.id, { name });
     if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ message: "Profile updated", user });
   } catch (err) {

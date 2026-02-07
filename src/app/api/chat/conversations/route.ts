@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { ChatConversation } from '@/models/ChatConversation';
+import { ChatConversationModel } from '@/models/ChatConversation';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/chat/conversations - List all conversations
@@ -11,10 +11,10 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const conversations = await ChatConversation.findByUserId(session.user.id);
+    const conversations = await ChatConversationModel.findByUserId(session.user.id);
 
     const formattedConversations = await Promise.all(conversations.map(async (conv) => {
-      const messages = await ChatConversation.getMessages(conv.id);
+      const messages = await ChatConversationModel.getMessages(conv.id);
       const lastMessage = messages[messages.length - 1];
       
       return {
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const conversation = await ChatConversation.create({
+    const conversation = await ChatConversationModel.create({
       userId: session.user.id,
       title
     });
@@ -85,10 +85,10 @@ export async function DELETE(req: NextRequest) {
   }
 
   try {
-    const conversations = await ChatConversation.findByUserId(session.user.id);
+    const conversations = await ChatConversationModel.findByUserId(session.user.id);
 
     for (const conv of conversations) {
-      await ChatConversation.delete(conv.id);
+      await ChatConversationModel.delete(conv.id);
     }
 
     return NextResponse.json({ message: 'All conversations deleted' });

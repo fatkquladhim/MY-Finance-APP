@@ -1,8 +1,8 @@
 import { getDb, schema } from '@/lib/db';
 import { eq, desc } from 'drizzle-orm';
-import type { ChatConversation, NewChatConversation, ChatMessage, NewChatMessage } from '@/lib/db/schema';
+import type { ChatConversation, NewChatConversation } from '@/lib/db/schema';
 
-export class ChatConversation {
+export class ChatConversationModel {
   static async create(conversationData: Omit<NewChatConversation, 'id' | 'createdAt' | 'updatedAt'>) {
     const db = getDb();
     const [conversation] = await db.insert(schema.chatConversations)
@@ -34,8 +34,14 @@ export class ChatConversation {
 
   static async update(id: string, updates: Partial<Omit<ChatConversation, 'id' | 'createdAt' | 'updatedAt'>>) {
     const db = getDb();
+    
+    // If no updates provided, just update the timestamp
+    const updateData = Object.keys(updates).length === 0 
+      ? { updatedAt: new Date() } 
+      : updates;
+    
     const [conversation] = await db.update(schema.chatConversations)
-      .set(updates)
+      .set(updateData)
       .where(eq(schema.chatConversations.id, id))
       .returning();
     
@@ -80,7 +86,6 @@ export class ChatConversation {
   }
 
   static async getConversationWithMessages(id: string) {
-    const db = getDb();
     const conversation = await this.findById(id);
     
     if (!conversation) {

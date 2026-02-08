@@ -1,6 +1,6 @@
 import { getDb, schema } from '@/lib/db';
 import { eq } from 'drizzle-orm';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import type { User, NewUser } from '@/lib/db/schema';
 
 export class UserModel {
